@@ -6,6 +6,8 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
 	"time"
 )
 
@@ -33,6 +35,7 @@ func main() {
 	}
 
 	// Generate files
+	start := time.Now()
 	err = generateMarkdownFiles(*numFiles, *minSize, *maxSize, *outputDir)
 	if err != nil {
 		fmt.Printf("Error generating files: %v\n", err)
@@ -40,27 +43,41 @@ func main() {
 	}
 
 	fmt.Printf("Successfully generated %d Markdown files in %s\n", *numFiles, *outputDir)
+	elapsed := time.Since(start)
+	fmt.Printf("Time: %v\n", elapsed)
 }
 
 // generateMarkdownFiles creates Markdown files with random sizes within the specified range.
 func generateMarkdownFiles(numFiles, minSize, maxSize int, outputDir string) error {
 	rand.Seed(time.Now().UnixNano())
 
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, runtime.NumCPU()*2) // limit concurrency (adjust if needed)
+	errChan := make(chan error, numFiles)
+
 	for i := 0; i < numFiles; i++ {
-		// Random file size
-		size := rand.Intn(maxSize-minSize+1) + minSize
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			sem <- struct{}{}        // acquire a slot
+			defer func() { <-sem }() // release it
 
-		// Generate file content
-		content := generateRandomMarkdown(size)
+			size := rand.Intn(maxSize-minSize+1) + minSize
+			content := generateRandomMarkdown(size)
+			fileName := filepath.Join(outputDir, fmt.Sprintf("file_%d.md", i+1))
 
-		// File name
-		fileName := filepath.Join(outputDir, fmt.Sprintf("file_%d.md", i+1))
+			err := os.WriteFile(fileName, []byte(content), 0644)
+			if err != nil {
+				errChan <- fmt.Errorf("failed to write file %s: %v", fileName, err)
+			}
+		}(i)
+	}
 
-		// Write file
-		err := os.WriteFile(fileName, []byte(content), 0644)
-		if err != nil {
-			return fmt.Errorf("failed to write file %s: %v", fileName, err)
-		}
+	wg.Wait()
+	close(errChan)
+
+	if len(errChan) > 0 {
+		return <-errChan // return first error
 	}
 	return nil
 }
@@ -72,27 +89,27 @@ func generateRandomMarkdown(size int) string {
 id: %d
 title: "Sample Markdown File %d"
 tags: [example, test, random]
----\n\n`
+---`
 	content := fmt.Sprintf(frontMatter, rand.Intn(1000), rand.Intn(1000))
 
 	// Markdown elements for variety
 	elements := []string{
-		"# Header Level 1\n",
-		"## Header Level 2\n",
-		"- A bullet list item\n",
-		"1. A numbered list item\n",
-		"`Inline code example`\n",
+		"# Header Level 1",
+		"## Header Level 2",
+		"- A bullet list item",
+		"1. A numbered list item",
+		"`Inline code example`",
 		"```\nCode block example\n```\n",
-		"A paragraph with **bold** and *italic* text.\n",
-		"A [link](https://example.com) in the Markdown content.\n",
-		"> A blockquote for demonstration purposes.\n",
-		"Regular text line with some random words.\n",
+		"A paragraph with **bold** and *italic* text.",
+		"A [link](https://example.com) in the Markdown content.",
+		"> A blockquote for demonstration purposes.",
+		"Regular text line with some random words.",
 	}
 
 	// Generate random content until the desired size
 	for len(content) < size {
 		line := elements[rand.Intn(len(elements))]
-		content += line
+		content += "\n" + line
 	}
 
 	// Truncate to exact size if necessary

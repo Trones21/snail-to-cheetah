@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Go: Serial Front Matter Reader",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/serial-full-read",
+      "args": ["-path", "${workspaceFolder}/filegen_out/file_1.md"],
+      "env": {},
+      "cwd": "${workspaceFolder}/serial-full-read"
+    }
+  ]
+}

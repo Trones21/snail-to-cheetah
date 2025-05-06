@@ -6,10 +6,16 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 func main() {
@@ -38,6 +44,11 @@ func main() {
 		return
 	}
 
+	go func() {
+		log.Println("pprof available at http://localhost:6060/debug/pprof/")
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+
 	fmt.Printf("Starting Serial Full Read for path: %s\n", path)
 
 	// Collect all file paths
@@ -48,12 +59,15 @@ func main() {
 	}
 	fmt.Printf("File Count: %v\n", len(paths))
 	// Process each file
+	start := time.Now()
 	for _, path := range paths {
 		err := processFile(path)
 		if err != nil {
 			fmt.Printf("Error processing file %s: %v\n", path, err)
 		}
 	}
+	elapsed := time.Since(start)
+	fmt.Printf("Processed %s in %v\n", path, elapsed)
 }
 
 // collectFilePaths collects all file paths from a given directory or single file that match a given extension (case-insensitive).
@@ -112,33 +126,32 @@ func processFile(path string) error {
 	}
 
 	// Extract front matter
-	frontMatter, err := extractFrontMatterRegex(string(content))
+
+	frontMatter, err := extractFrontMatterBoundary(string(content))
 	if err != nil {
-		frontMatter, err = extractFrontMatterBoundary(string(content))
-		if err != nil {
-			return fmt.Errorf("failed to extract front matter: %w", err)
-		}
+		return fmt.Errorf("failed to extract front matter. Error: %w", err)
 	}
 
 	// Parse the front matter into a map
-	frontMatterKeys := make(map[string]interface{})
-	err = json.Unmarshal([]byte(frontMatter), &frontMatterKeys)
+	var frontMatterKVs map[string]interface{}
+	err = yaml.Unmarshal([]byte(frontMatter), &frontMatterKVs)
 	if err != nil {
-		return fmt.Errorf("failed to parse front matter: %w", err)
+		log.Fatalf("failed to parse YAML front matter: %v", err)
 	}
 
 	// Check for missing keys
 	missingKeys := []string{}
 	for key := range templateKeys {
-		if _, exists := frontMatterKeys[key]; !exists {
+		if _, exists := frontMatterKVs[key]; !exists {
 			missingKeys = append(missingKeys, key)
 		}
 	}
 
 	if len(missingKeys) > 0 {
-		fmt.Printf("File: %s\nMissing keys in front matter: %v\n", path, missingKeys)
+		// Currently they are all invalid as the template is pretty static
+		//fmt.Printf("File: %s - Missing keys in front matter: %v\n", path, missingKeys)
 	} else {
-		fmt.Printf("File: %s\nFront matter is valid.\n", path)
+		fmt.Printf("File: %s - Front matter is valid.\n", path)
 	}
 
 	return nil
@@ -158,22 +171,17 @@ func extractFrontMatterRegex(content string) (string, error) {
 // extractFrontMatterBoundary extracts the front matter by reading up to the second ---.
 func extractFrontMatterBoundary(content string) (string, error) {
 	// Normalize line endings to \n to handle different platforms
-	fmt.Printf("content: %q \n", content)
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	content = strings.ReplaceAll(content, "\r", "\n")
 	lines := strings.Split(content, "\n")
 
-	for i, val := range lines {
-		fmt.Printf("lines[%v]: %q \n", i, val)
-	}
-
 	if len(lines) < 2 || lines[0] != "---" {
-		return "", errors.New(fmt.Sprintf("front matter start delimiter not found. First line: %s", lines[0]))
+		return "", fmt.Errorf("front matter start delimiter not found. First line: %s", lines[0])
 	}
 
 	var frontMatterLines []string
 	for i := 1; i < len(lines); i++ {
-		if lines[i] == "---" {
+		if strings.TrimSpace(lines[i]) == "---" {
 			return strings.Join(frontMatterLines, "\n"), nil
 		}
 		frontMatterLines = append(frontMatterLines, lines[i])
