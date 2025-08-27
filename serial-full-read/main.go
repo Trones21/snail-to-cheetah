@@ -11,7 +11,6 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -149,23 +148,12 @@ func processFile(path string) error {
 
 	if len(missingKeys) > 0 {
 		// Currently they are all invalid as the template is pretty static
-		//fmt.Printf("File: %s - Missing keys in front matter: %v\n", path, missingKeys)
+		fmt.Printf("File: %s - Missing keys in front matter: %v\n", path, missingKeys)
 	} else {
-		fmt.Printf("File: %s - Front matter is valid.\n", path)
+		//fmt.Printf("File: %s - Front matter is valid.\n", path)
 	}
 
 	return nil
-}
-
-// extractFrontMatterRegex extracts the front matter using a regex pattern.
-func extractFrontMatterRegex(content string) (string, error) {
-	// Regular expression to match front matter enclosed by --- or +++
-	regex := regexp.MustCompile(`(?s)^---\n(.*?)\n---`)
-	matches := regex.FindStringSubmatch(content)
-	if len(matches) < 2 {
-		return "", errors.New("front matter not found")
-	}
-	return matches[1], nil
 }
 
 // extractFrontMatterBoundary extracts the front matter by reading up to the second ---.
